@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Offline Messenger",
+  "description": "Offline Messenger browser extension client",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "Offline Messenger",
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "128": "icon.png"
+  },
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Offline Messenger",
+  "short_name": "Messenger",
+  "description": "Offline Messenger",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6d6af2",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
