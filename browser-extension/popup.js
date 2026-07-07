@@ -234,7 +234,8 @@ async function changeNickname() {
     }
 }
 
-async function loadRooms() {
+async function loadRooms(options) {
+    const silent = !!(options && options.silent);
     try {
         lastRooms = await api("/api/rooms", {headers: authHeaders(false)});
         roomNames = {};
@@ -247,8 +248,17 @@ async function loadRooms() {
         renderRooms();
         subscribeKnownRooms();
     } catch (e) {
-        showInfo(e.message);
+        // 새 메시지 수신 시마다 자동으로 실행되는 백그라운드 새로고침이므로,
+        // 일시적인 오류로 매번 팝업이 뜨지 않도록 조용히 처리한다.
+        if (silent) console.warn("방 목록을 새로고침하지 못했습니다:", e.message);
+        else showInfo(e.message);
     }
+}
+
+function roomTypeLabel(type) {
+    if (type === "SELF") return "나와의 채팅";
+    if (type === "PRIVATE") return "개인";
+    return "단체";
 }
 
 function renderRooms() {
@@ -258,20 +268,23 @@ function renderRooms() {
     lastRooms.forEach(room => {
         const div = document.createElement("div");
         const label = document.createElement("span");
-        const deleteButton = document.createElement("button");
         const unread = unreadRoomIds.has(room.id) ? " unread" : "";
         div.className = "room" + (room.id === currentRoomId ? " active" : "") + unread;
-        label.textContent = `[${room.type === "PRIVATE" ? "개인" : "단체"}] ${room.name}`;
-        deleteButton.type = "button";
-        deleteButton.className = "room-delete";
-        deleteButton.textContent = "x";
-        deleteButton.title = "방 삭제";
-        deleteButton.addEventListener("click", event => {
-            event.stopPropagation();
-            deleteRoomById(room.id);
-        });
+        label.textContent = `[${roomTypeLabel(room.type)}] ${room.name}`;
         div.addEventListener("click", () => enterRoom(room.id, room.name, room.type));
-        div.append(label, deleteButton);
+        div.append(label);
+        if (room.type !== "SELF") {
+            const deleteButton = document.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "room-delete";
+            deleteButton.textContent = "x";
+            deleteButton.title = "방 삭제";
+            deleteButton.addEventListener("click", event => {
+                event.stopPropagation();
+                deleteRoomById(room.id);
+            });
+            div.appendChild(deleteButton);
+        }
         el.appendChild(div);
     });
 }
@@ -462,7 +475,7 @@ function handleIncomingMessage(roomId, message) {
         renderRooms();
     }
 
-    loadRooms();
+    loadRooms({silent: true});
     if (!isMine && message.type !== "SYSTEM") {
         notifyIncomingMessage(roomId, message);
     }
@@ -748,7 +761,7 @@ function createMessageElement(m) {
             link.textContent = m.originalFileName || m.content;
             content.appendChild(link);
         } else {
-            content.textContent = m.content;
+            renderMessageContent(content, m.content);
         }
         bubble.append(meta, content);
         box.append(avatar, bubble);
@@ -766,8 +779,8 @@ function renderMessage(m) {
 function sendMessage() {
     if (!currentRoomId) return showInfo("방을 선택하세요.");
     const input = $("messageInput");
-    const content = input.value.trim();
-    if (!content) return;
+    const content = input.value;
+    if (!content.trim()) return;
     connect(() => {
         stompClient.send("/app/chat.send", {}, JSON.stringify({
             roomId: currentRoomId,
@@ -776,6 +789,37 @@ function sendMessage() {
         }));
         input.value = "";
     });
+}
+
+function insertCodeBlock() {
+    const input = $("messageInput");
+    const langSelect = $("codeLangSelect");
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const value = input.value;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const selected = value.slice(start, end);
+    const needsLeadingNewline = before.length > 0 && !before.endsWith("\n");
+    const needsTrailingNewline = after.length > 0 && !after.startsWith("\n");
+    // 언어 선택 드롭다운에서 명시적으로 고른 언어가 있으면 그걸 그대로 쓰고,
+    // "자동감지"로 남겨뒀을 때만 선택된 텍스트로부터 언어를 추측한다.
+    const chosenLang = langSelect ? langSelect.value : "";
+    const lang = chosenLang || (selected && typeof detectLanguage === "function" ? (detectLanguage(selected) || "") : "");
+    const bodyText = selected || "";
+    const bodyWithNewline = bodyText && !bodyText.endsWith("\n") ? bodyText + "\n" : bodyText;
+    const block = (needsLeadingNewline ? "\n" : "") + "```" + lang + "\n" + bodyWithNewline + "```" + (needsTrailingNewline ? "\n" : "");
+
+    input.value = before + block + after;
+    input.focus();
+
+    if (selected) {
+        const cursorPos = before.length + block.length;
+        input.setSelectionRange(cursorPos, cursorPos);
+    } else {
+        const cursorPos = before.length + (needsLeadingNewline ? 1 : 0) + 3 + lang.length + 1;
+        input.setSelectionRange(cursorPos, cursorPos);
+    }
 }
 
 async function uploadFile() {
@@ -892,7 +936,7 @@ function toggleProfileDetails() {
 
 function toggleMemberAddPanel() {
     if (!currentRoomId) return showInfo("방을 선택하세요.");
-    if (currentRoomType === "PRIVATE") return showInfo("개인방에는 사용자를 추가할 수 없습니다.");
+    if (currentRoomType !== "GROUP") return showInfo("단체방에서만 사용자를 추가할 수 있습니다.");
     $("memberAddPanel").classList.toggle("hidden");
 }
 
@@ -1004,6 +1048,7 @@ function bindEvents() {
     $("renameRoomButton").addEventListener("click", renameRoom);
     $("leaveRoomButton").addEventListener("click", leaveRoom);
     $("sendMessageButton").addEventListener("click", sendMessage);
+    $("insertCodeButton").addEventListener("click", insertCodeBlock);
     $("uploadFileButton").addEventListener("click", () => $("fileInput").click());
     $("fileInput").addEventListener("change", uploadFile);
     $("userSearchKeyword").addEventListener("input", searchUsersForAdd);
@@ -1012,6 +1057,16 @@ function bindEvents() {
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             sendMessage();
+            return;
+        }
+        if (event.key === "Tab") {
+            // 코드 작성 시 들여쓰기를 유지할 수 있도록 Tab으로 포커스가 이동하지 않고 공백을 삽입한다.
+            event.preventDefault();
+            const input = event.target;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            input.value = input.value.slice(0, start) + "    " + input.value.slice(end);
+            input.selectionStart = input.selectionEnd = start + 4;
         }
     });
     $("notificationToggle").addEventListener("change", event => setNotificationsEnabled(event.target.checked));

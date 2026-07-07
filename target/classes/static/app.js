@@ -60,6 +60,7 @@ function toFriendlyError(text, status) {
     if (!raw) return "요청 처리 중 오류가 발생했습니다.";
     if (raw.indexOf("아이디") >= 0 || raw.indexOf("비밀번호") >= 0 || raw.indexOf("닉네임") >= 0) return raw;
     if (raw.indexOf("방 이름") >= 0 || raw.indexOf("사용자") >= 0 || raw.indexOf("참여자") >= 0) return raw;
+    if (raw.indexOf("로그인") >= 0 || raw.indexOf("메시지를 입력") >= 0) return raw;
     if (status === 400) return "입력값을 확인해주세요.";
     if (status === 401 || status === 403) return "로그인이 필요하거나 권한이 없습니다.";
     if (status === 404) return "요청한 정보를 찾을 수 없습니다.";
@@ -300,7 +301,14 @@ function updateCustomAvatarColor(value) {
     renderAvatarPicker();
 }
 
-async function loadRooms() {
+function roomTypeLabel(type) {
+    if (type === "SELF") return "나와의 채팅";
+    if (type === "PRIVATE") return "개인";
+    return "단체";
+}
+
+async function loadRooms(options) {
+    const silent = !!(options && options.silent);
     try {
         const rooms = await api("/api/rooms", {headers: authHeaders(false)});
         const el = document.getElementById("rooms");
@@ -315,22 +323,30 @@ async function loadRooms() {
         rooms.forEach(r => {
             const div = document.createElement("div");
             const label = document.createElement("span");
-            const deleteButton = document.createElement("button");
             div.className = "room";
-            label.textContent = `[${r.type === "PRIVATE" ? "개인" : "단체"}] ${r.name}`;
-            deleteButton.type = "button";
-            deleteButton.className = "room-delete";
-            deleteButton.textContent = "x";
-            deleteButton.title = "방 삭제";
-            deleteButton.onclick = event => {
-                event.stopPropagation();
-                deleteRoomById(r.id);
-            };
+            label.textContent = `[${roomTypeLabel(r.type)}] ${r.name}`;
             div.onclick = () => enterRoom(r.id, r.name, r.type);
-            div.append(label, deleteButton);
+            div.append(label);
+            if (r.type !== "SELF") {
+                const deleteButton = document.createElement("button");
+                deleteButton.type = "button";
+                deleteButton.className = "room-delete";
+                deleteButton.textContent = "x";
+                deleteButton.title = "방 삭제";
+                deleteButton.onclick = event => {
+                    event.stopPropagation();
+                    deleteRoomById(r.id);
+                };
+                div.appendChild(deleteButton);
+            }
             el.appendChild(div);
         });
-    } catch (e) { showInfo(e.message); }
+    } catch (e) {
+        // 새 메시지 수신 시마다 자동으로 실행되는 백그라운드 새로고침이므로,
+        // 일시적인 오류로 매번 팝업이 뜨지 않도록 조용히 처리한다.
+        if (silent) console.warn("방 목록을 새로고침하지 못했습니다:", e.message);
+        else showInfo(e.message);
+    }
 }
 
 async function createRoom() {
@@ -385,7 +401,7 @@ async function enterRoom(roomId, roomName, roomType) {
         subscription = stompClient.subscribe(`/topic/rooms/${roomId}`, msg => {
             renderMessage(JSON.parse(msg.body));
             loadMembers();
-            loadRooms();
+            loadRooms({silent: true});
         });
     });
 }
@@ -636,7 +652,7 @@ function createMessageElement(m) {
             link.textContent = m.originalFileName || m.content;
             content.appendChild(link);
         } else {
-            content.textContent = m.content;
+            renderMessageContent(content, m.content);
         }
         if (m.senderUserId === me.userId) {
             const button = document.createElement("button");
@@ -666,8 +682,8 @@ function renderMessage(m) {
 function sendMessage() {
     if (!currentRoomId) return showInfo("방을 선택하세요.");
     const input = document.getElementById("messageInput");
-    const content = input.value.trim();
-    if (!content) return;
+    const content = input.value;
+    if (!content.trim()) return;
 
     connect(() => {
         stompClient.send("/app/chat.send", {}, JSON.stringify({
@@ -677,6 +693,37 @@ function sendMessage() {
         }));
         input.value = "";
     });
+}
+
+function insertCodeBlock() {
+    const input = document.getElementById("messageInput");
+    const langSelect = document.getElementById("codeLangSelect");
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const value = input.value;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const selected = value.slice(start, end);
+    const needsLeadingNewline = before.length > 0 && !before.endsWith("\n");
+    const needsTrailingNewline = after.length > 0 && !after.startsWith("\n");
+    // 언어 선택 드롭다운에서 명시적으로 고른 언어가 있으면 그걸 그대로 쓰고,
+    // "자동감지"로 남겨뒀을 때만 선택된 텍스트로부터 언어를 추측한다.
+    const chosenLang = langSelect ? langSelect.value : "";
+    const lang = chosenLang || (selected && typeof detectLanguage === "function" ? (detectLanguage(selected) || "") : "");
+    const bodyText = selected || "";
+    const bodyWithNewline = bodyText && !bodyText.endsWith("\n") ? bodyText + "\n" : bodyText;
+    const block = (needsLeadingNewline ? "\n" : "") + "```" + lang + "\n" + bodyWithNewline + "```" + (needsTrailingNewline ? "\n" : "");
+
+    input.value = before + block + after;
+    input.focus();
+
+    if (selected) {
+        const cursorPos = before.length + block.length;
+        input.setSelectionRange(cursorPos, cursorPos);
+    } else {
+        const cursorPos = before.length + (needsLeadingNewline ? 1 : 0) + 3 + lang.length + 1;
+        input.setSelectionRange(cursorPos, cursorPos);
+    }
 }
 
 async function uploadFile() {
@@ -787,7 +834,7 @@ function toggleProfileDetails() {
 
 function toggleMemberAddPanel() {
     if (!currentRoomId) return showInfo("방을 선택하세요.");
-    if (currentRoomType === "PRIVATE") return showInfo("개인방에는 사용자를 추가할 수 없습니다.");
+    if (currentRoomType !== "GROUP") return showInfo("단체방에서만 사용자를 추가할 수 있습니다.");
     document.getElementById("memberAddPanel").classList.toggle("hidden");
 }
 
@@ -819,6 +866,16 @@ document.getElementById("messageInput").addEventListener("keydown", event => {
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
+        return;
+    }
+    if (event.key === "Tab") {
+        // 코드 작성 시 들여쓰기를 유지할 수 있도록 Tab으로 포커스가 이동하지 않고 공백을 삽입한다.
+        event.preventDefault();
+        const input = event.target;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.slice(0, start) + "    " + input.value.slice(end);
+        input.selectionStart = input.selectionEnd = start + 4;
     }
 });
 document.getElementById("avatarColorInput").addEventListener("input", event => updateCustomAvatarColor(event.target.value));

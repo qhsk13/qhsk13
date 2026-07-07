@@ -7,6 +7,7 @@
     <link rel="manifest" href="/site.webmanifest">
     <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/style.css">
+    <script src="/code-format.js"></script>
 </head>
 <body>
 <div id="loginPanel" class="login-panel">
@@ -101,8 +102,26 @@
         </div>
         <div id="messages"></div>
         <div class="sendbox">
-            <textarea id="messageInput" placeholder="메시지 입력"></textarea>
+            <textarea id="messageInput" placeholder="메시지 입력 (코드는 [코드] 버튼으로 언어를 선택해 넣거나, 그대로 붙여넣으면 자동 서식이 적용됩니다)"></textarea>
             <button onclick="sendMessage()">전송</button>
+            <select id="codeLangSelect" title="코드 언어 선택 (기본: 자동감지)">
+                <option value="">자동감지</option>
+                <option value="java">Java</option>
+                <option value="jsp">JSP</option>
+                <option value="html">HTML</option>
+                <option value="xml">XML</option>
+                <option value="markdown">Markdown</option>
+                <option value="css">CSS</option>
+                <option value="javascript">JavaScript</option>
+                <option value="json">JSON</option>
+                <option value="sql">SQL</option>
+                <option value="python">Python</option>
+                <option value="bash">Shell</option>
+                <option value="yaml">YAML</option>
+                <option value="properties">Properties</option>
+                <option value="plaintext">Text(서식없음)</option>
+            </select>
+            <button id="insertCodeButton" onclick="insertCodeBlock()" class="outline" title="선택한 언어로 코드 블록 삽입">코드</button>
             <input id="fileInput" type="file">
             <button id="uploadFileButton" onclick="chooseFile()" class="outline" title="파일 첨부">첨부</button>
         </div>

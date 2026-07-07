@@ -37,7 +37,9 @@ public class ChatService {
         this.messagingTemplate = messagingTemplate;
     }
 
+    @Transactional
     public List<ChatRoomSummary> visibleRooms(AppUser user) {
+        ensureSelfChatRoom(user);
         List<RoomMember> memberships = memberRepo.findByUserIdAndActiveTrue(user.getId());
         List<ChatRoomSummary> rooms = new ArrayList<>();
         for (RoomMember m : memberships) {
@@ -46,11 +48,36 @@ public class ChatService {
         return rooms;
     }
 
+    /**
+     * 사용자에게 "나와의 채팅"(SELF 타입) 방이 없으면 하나 만들어준다.
+     * 신규 가입자뿐 아니라 이 기능이 추가되기 전에 가입한 기존 사용자도
+     * 방 목록을 불러올 때마다 이 메서드를 거치므로 자동으로 채워진다.
+     */
+    @Transactional
+    public void ensureSelfChatRoom(AppUser user) {
+        boolean exists = memberRepo.findByUserIdAndActiveTrue(user.getId()).stream()
+                .anyMatch(m -> roomRepo.findById(m.getRoomId())
+                        .map(r -> r.getType() == RoomType.SELF)
+                        .orElse(false));
+        if (exists) return;
+
+        // 방 이름은 전체 방을 통틀어 유일해야 하므로(name unique 제약) 사용자 ID를 붙여 충돌을 피하고,
+        // 실제로 화면에 보이는 이름은 RoomMember.displayRoomName("나와의 채팅")로 별도 지정한다.
+        String internalName = uniqueRoomName("나와의 채팅#" + user.getId());
+        ChatRoom room = roomRepo.save(new ChatRoom(internalName, RoomType.SELF, user.getId()));
+        RoomMember member = new RoomMember(room.getId(), user.getId());
+        member.setDisplayRoomName("나와의 채팅");
+        memberRepo.save(member);
+    }
+
     @Transactional
     public ChatRoom createRoom(CreateRoomRequest req, AppUser creator) {
         String requestedRoomName = clean(req.getName());
 
         RoomType type = req.getType() == null ? RoomType.GROUP : req.getType();
+        if (type == RoomType.SELF) {
+            throw new IllegalArgumentException("나와의 채팅은 직접 만들 수 없고, 가입 시 자동으로 생성됩니다.");
+        }
         Map<Long, AppUser> membersById = new LinkedHashMap<>();
         membersById.put(creator.getId(), creator);
 
@@ -95,7 +122,7 @@ public class ChatService {
         String roomName = clean(name);
         if (roomName.isEmpty()) throw new IllegalArgumentException("방 이름을 입력하세요.");
 
-        if (room.getType() == RoomType.PRIVATE) {
+        if (room.getType() == RoomType.PRIVATE || room.getType() == RoomType.SELF) {
             member.setDisplayRoomName(roomName);
             return toSummary(room, requester, member);
         }
@@ -110,7 +137,7 @@ public class ChatService {
     public RoomMember addMember(Long roomId, AppUser requester, String loginId) {
         ChatRoom room = roomRepo.findById(roomId).orElseThrow(() -> new IllegalArgumentException("방을 찾을 수 없습니다."));
         requireActiveMember(roomId, requester.getId());
-        if (room.getType() == RoomType.PRIVATE) throw new IllegalArgumentException("개인방에는 사용자를 추가할 수 없습니다.");
+        if (room.getType() != RoomType.GROUP) throw new IllegalArgumentException("단체방에서만 사용자를 추가할 수 있습니다.");
 
         AppUser target = userRepo.findByLoginId(clean(loginId))
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다."));
@@ -127,6 +154,7 @@ public class ChatService {
     @Transactional
     public void leave(Long roomId, AppUser user) {
         ChatRoom room = roomRepo.findById(roomId).orElseThrow(() -> new IllegalArgumentException("방을 찾을 수 없습니다."));
+        if (room.getType() == RoomType.SELF) throw new IllegalArgumentException("나와의 채팅은 나갈 수 없습니다.");
         RoomMember member = requireActiveMember(roomId, user.getId());
         member.setActive(false);
         member.setLeftAt(LocalDateTime.now());
@@ -140,6 +168,7 @@ public class ChatService {
     @Transactional
     public void deleteRoom(Long roomId, AppUser user) {
         ChatRoom room = roomRepo.findById(roomId).orElseThrow(() -> new IllegalArgumentException("방을 찾을 수 없습니다."));
+        if (room.getType() == RoomType.SELF) throw new IllegalArgumentException("나와의 채팅은 삭제할 수 없습니다.");
         if (!room.getCreatedByUserId().equals(user.getId())) {
             throw new IllegalArgumentException("방을 만든 사용자만 삭제할 수 있습니다.");
         }
