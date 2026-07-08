@@ -27,7 +27,7 @@
     <aside>
         <div class="profile">
             <button id="profileToggle" class="profile-head" type="button" onclick="toggleProfileDetails()">
-                <div id="myAvatar" class="avatar avatar-aurora"></div>
+                <div id="myAvatar" class="avatar avatar-av1"></div>
                 <div>
                     <b id="myDisplayName"></b>
                     <span class="small" id="myLoginId"></span>
@@ -102,7 +102,10 @@
         </div>
         <div id="messages"></div>
         <div class="sendbox">
-            <textarea id="messageInput" placeholder="메시지 입력 (코드는 [코드] 버튼으로 언어를 선택해 넣거나, 그대로 붙여넣으면 자동 서식이 적용됩니다)"></textarea>
+            <div class="message-input-wrap">
+                <div id="mentionDropdown" class="mention-dropdown hidden"></div>
+                <textarea id="messageInput" placeholder="메시지 입력 (@닉네임으로 멘션, 코드는 [코드] 버튼으로 언어를 선택해 넣거나 그대로 붙여넣으면 자동 서식이 적용됩니다)"></textarea>
+            </div>
             <button onclick="sendMessage()">전송</button>
             <select id="codeLangSelect" title="코드 언어 선택 (기본: 자동감지)">
                 <option value="">자동감지</option>

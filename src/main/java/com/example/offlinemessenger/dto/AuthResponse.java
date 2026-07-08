@@ -8,7 +8,7 @@ public class AuthResponse {
     private String token;
 
     public AuthResponse(Long userId, String loginId, String displayName, String token) {
-        this(userId, loginId, displayName, "aurora", token);
+        this(userId, loginId, displayName, com.example.offlinemessenger.entity.AppUser.AVATAR_KEYS[0], token);
     }
 
     public AuthResponse(Long userId, String loginId, String displayName, String avatarKey, String token) {

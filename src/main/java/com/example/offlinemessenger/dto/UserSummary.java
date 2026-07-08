@@ -7,7 +7,7 @@ public class UserSummary {
     private String avatarKey;
 
     public UserSummary(Long userId, String loginId, String displayName) {
-        this(userId, loginId, displayName, "aurora");
+        this(userId, loginId, displayName, com.example.offlinemessenger.entity.AppUser.AVATAR_KEYS[0]);
     }
 
     public UserSummary(Long userId, String loginId, String displayName, String avatarKey) {

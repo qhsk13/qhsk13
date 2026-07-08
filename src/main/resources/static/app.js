@@ -11,14 +11,34 @@ let oldestLoadedMessageId = null;
 let hasOlderMessages = false;
 const MESSAGE_PAGE_SIZE = 50;
 let currentRoomName = "";
-let selectedAvatarKey = "aurora";
+// 현재 보고 있는 방의 참여자 목록(멘션 자동완성/하이라이트에 사용).
+let currentRoomMembers = [];
+// "@" 멘션 입력 상태: 입력창에서 @뒤에 이어 쓰는 검색어와, 그에 맞는 후보 목록/선택 인덱스를 추적한다.
+let mentionState = {active: false, start: -1, query: "", matches: [], activeIndex: 0};
+// 프로필 아바타: 이름/닉네임 글자와 무관하게, 미리 만들어둔 20개의 이모지 아바타 세트 중
+// 회원가입 시 서버가 무작위로 하나를 배정하고, 사용자는 이 20개 중에서 언제든 원하는 것으로 바꿀 수 있다.
+let selectedAvatarKey = "av1";
 const AVATAR_OPTIONS = [
-    {key: "aurora", label: "A", color: "#6d6af2"},
-    {key: "mint", label: "M", color: "#10b981"},
-    {key: "violet", label: "V", color: "#8b5cf6"},
-    {key: "peach", label: "P", color: "#fb7185"},
-    {key: "sky", label: "S", color: "#0ea5e9"},
-    {key: "mono", label: "N", color: "#64748b"}
+    {key: "av1", emoji: "😀", color: "#6d6af2"},
+    {key: "av2", emoji: "😎", color: "#10b981"},
+    {key: "av3", emoji: "🤖", color: "#8b5cf6"},
+    {key: "av4", emoji: "🐱", color: "#fb7185"},
+    {key: "av5", emoji: "🐶", color: "#0ea5e9"},
+    {key: "av6", emoji: "🦊", color: "#f97316"},
+    {key: "av7", emoji: "🐻", color: "#a16207"},
+    {key: "av8", emoji: "🐼", color: "#334155"},
+    {key: "av9", emoji: "🦁", color: "#eab308"},
+    {key: "av10", emoji: "🐯", color: "#f59e0b"},
+    {key: "av11", emoji: "🐨", color: "#64748b"},
+    {key: "av12", emoji: "🐰", color: "#ec4899"},
+    {key: "av13", emoji: "🐸", color: "#22c55e"},
+    {key: "av14", emoji: "🐧", color: "#0f172a"},
+    {key: "av15", emoji: "🦉", color: "#7c3aed"},
+    {key: "av16", emoji: "🦄", color: "#d946ef"},
+    {key: "av17", emoji: "🐙", color: "#db2777"},
+    {key: "av18", emoji: "🦋", color: "#06b6d4"},
+    {key: "av19", emoji: "🌟", color: "#facc15"},
+    {key: "av20", emoji: "🔥", color: "#ef4444"}
 ];
 
 if ("serviceWorker" in navigator) {
@@ -166,7 +186,7 @@ async function init() {
 async function showApp() {
     document.getElementById("loginPanel").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
-    selectedAvatarKey = me.avatarKey || avatarKeyFromText(me.displayName || me.loginId);
+    selectedAvatarKey = me.avatarKey || AVATAR_OPTIONS[Math.floor(Math.random() * AVATAR_OPTIONS.length)].key;
     document.getElementById("myDisplayName").textContent = me.displayName;
     document.getElementById("myLoginId").textContent = "ID: " + me.loginId;
     document.getElementById("nicknameInput").value = me.displayName;
@@ -200,7 +220,7 @@ function renderMyAvatar() {
     const avatar = document.getElementById("myAvatar");
     if (!avatar) return;
     applyAvatarStyle(avatar, selectedAvatarKey);
-    avatar.textContent = avatarLabel(me.displayName, selectedAvatarKey);
+    avatar.textContent = avatarLabel(selectedAvatarKey);
     syncCustomColorInputs();
 }
 
@@ -208,11 +228,12 @@ function renderAvatarPicker() {
     const picker = document.getElementById("avatarPicker");
     if (!picker) return;
     picker.innerHTML = "";
+    const currentPreset = parseAvatarKey(selectedAvatarKey).presetKey;
     AVATAR_OPTIONS.forEach(option => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `avatar-choice avatar avatar-${option.key}` + (option.key === selectedAvatarKey ? " selected" : "");
-        button.textContent = option.label;
+        button.className = `avatar-choice avatar avatar-${option.key}` + (option.key === currentPreset ? " selected" : "");
+        button.textContent = option.emoji;
         button.title = "프로필 아이콘 선택";
         button.onclick = () => {
             setSelectedAvatarKey(option.key);
@@ -223,41 +244,45 @@ function renderAvatarPicker() {
     });
 }
 
-function avatarLabel(displayName, avatarKey) {
-    const text = String(displayName || "").trim();
-    if (text) return text.substring(0, 1).toUpperCase();
-    const option = AVATAR_OPTIONS.find(item => item.key === avatarKey);
-    return option ? option.label : "U";
+// 아바타는 이름/닉네임 글자와 무관하게 항상 20개의 미리 만든 이모지 중 하나로만 표시된다.
+function avatarLabel(avatarKey) {
+    const presetKey = parseAvatarKey(avatarKey).presetKey;
+    const option = AVATAR_OPTIONS.find(item => item.key === presetKey);
+    return option ? option.emoji : AVATAR_OPTIONS[0].emoji;
 }
 
-function avatarKeyFromText(text) {
-    const keys = AVATAR_OPTIONS.map(option => option.key);
-    const value = String(text || "user");
-    let hash = 0;
-    for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash) + value.charCodeAt(i);
-    return keys[Math.abs(hash) % keys.length];
+// avatarKey를 "프리셋 키" + "선택적 커스텀 색상"으로 분리한다.
+// 새 형식: "av7" (프리셋 그대로) 또는 "av7|#RRGGBB" (프리셋 이모지를 유지한 채 배경색만 커스텀).
+// 예전 형식("custom:#RRGGBB")도 남아있을 수 있으므로 호환을 위해 계속 인식한다.
+function parseAvatarKey(avatarKey) {
+    const raw = String(avatarKey || "");
+    const pipeMatch = raw.match(/^([a-zA-Z0-9]+)\|(#[0-9a-fA-F]{6})$/);
+    if (pipeMatch) return {presetKey: pipeMatch[1], customColor: pipeMatch[2].toUpperCase()};
+    const legacyMatch = raw.match(/^custom:(#[0-9a-fA-F]{6})$/);
+    if (legacyMatch) return {presetKey: AVATAR_OPTIONS[0].key, customColor: legacyMatch[1].toUpperCase()};
+    return {presetKey: raw, customColor: ""};
 }
 
 function avatarKeyForUserId(userId) {
-    if (me && me.userId === userId) return me.avatarKey || selectedAvatarKey || "aurora";
+    if (me && me.userId === userId) return me.avatarKey || selectedAvatarKey || AVATAR_OPTIONS[0].key;
     const user = allUsersCache.find(item => item.userId === userId);
-    return user && user.avatarKey ? user.avatarKey : "aurora";
+    return user && user.avatarKey ? user.avatarKey : AVATAR_OPTIONS[0].key;
 }
 
 function applyAvatarStyle(element, avatarKey) {
-    const customColor = customColorFromAvatarKey(avatarKey);
+    const parsed = parseAvatarKey(avatarKey);
     const keepMessageClass = element.classList.contains("message-avatar");
-    if (customColor) {
+    if (parsed.customColor) {
         element.className = element.className
             .split(/\s+/)
             .filter(name => name && name !== "avatar" && name !== "message-avatar" && !name.startsWith("avatar-"))
             .join(" ");
         element.classList.add("avatar");
         if (keepMessageClass) element.classList.add("message-avatar");
-        element.style.backgroundColor = customColor;
+        element.style.backgroundColor = parsed.customColor;
         return;
     }
-    const key = AVATAR_OPTIONS.some(option => option.key === avatarKey) ? avatarKey : "aurora";
+    const key = AVATAR_OPTIONS.some(option => option.key === parsed.presetKey) ? parsed.presetKey : AVATAR_OPTIONS[0].key;
     element.className = keepMessageClass ? `avatar message-avatar avatar-${key}` : `avatar avatar-${key}`;
     element.style.backgroundColor = "";
 }
@@ -268,14 +293,13 @@ function setSelectedAvatarKey(avatarKey) {
 }
 
 function customColorFromAvatarKey(avatarKey) {
-    const match = String(avatarKey || "").match(/^custom:(#[0-9a-fA-F]{6})$/);
-    return match ? match[1].toUpperCase() : "";
+    return parseAvatarKey(avatarKey).customColor;
 }
 
 function selectedAvatarColor() {
-    const customColor = customColorFromAvatarKey(selectedAvatarKey);
-    if (customColor) return customColor;
-    const option = AVATAR_OPTIONS.find(item => item.key === selectedAvatarKey);
+    const parsed = parseAvatarKey(selectedAvatarKey);
+    if (parsed.customColor) return parsed.customColor;
+    const option = AVATAR_OPTIONS.find(item => item.key === parsed.presetKey);
     return option ? option.color : AVATAR_OPTIONS[0].color;
 }
 
@@ -296,9 +320,168 @@ function normalizeHexColor(value) {
 function updateCustomAvatarColor(value) {
     const color = normalizeHexColor(value);
     if (!color) return;
-    setSelectedAvatarKey("custom:" + color);
+    const presetKey = parseAvatarKey(selectedAvatarKey).presetKey;
+    const basePreset = AVATAR_OPTIONS.some(option => option.key === presetKey) ? presetKey : AVATAR_OPTIONS[0].key;
+    setSelectedAvatarKey(`${basePreset}|${color}`);
     renderMyAvatar();
     renderAvatarPicker();
+}
+
+// ---------- @멘션(카카오톡 스타일) ----------
+
+function updateMentionState() {
+    const input = document.getElementById("messageInput");
+    if (!input) return;
+    const cursor = input.selectionStart;
+    const value = input.value;
+    const uptoCursor = value.slice(0, cursor);
+    const atIndex = uptoCursor.lastIndexOf("@");
+    if (atIndex === -1) return closeMentionDropdown();
+
+    // "@"가 단어 시작이 아니면(예: 이메일 중간의 a@b) 멘션 입력으로 보지 않는다.
+    const beforeAt = atIndex > 0 ? uptoCursor.charAt(atIndex - 1) : "";
+    if (atIndex > 0 && !/[\s\n]/.test(beforeAt)) return closeMentionDropdown();
+
+    const query = uptoCursor.slice(atIndex + 1);
+    if (/[\s\n]/.test(query)) return closeMentionDropdown(); // 이미 공백을 입력해 멘션 입력이 끝난 상태
+
+    const lowerQuery = query.toLowerCase();
+    const matches = currentRoomMembers
+        .filter(u => !query || String(u.displayName || "").toLowerCase().indexOf(lowerQuery) !== -1)
+        .slice(0, 8);
+
+    mentionState = {active: true, start: atIndex, query, matches, activeIndex: 0};
+    renderMentionDropdown();
+}
+
+function closeMentionDropdown() {
+    const wasActive = mentionState.active;
+    mentionState = {active: false, start: -1, query: "", matches: [], activeIndex: 0};
+    if (wasActive) renderMentionDropdown();
+}
+
+function moveMentionSelection(delta) {
+    if (!mentionState.active || !mentionState.matches.length) return;
+    const count = mentionState.matches.length;
+    mentionState.activeIndex = (mentionState.activeIndex + delta + count) % count;
+    renderMentionDropdown();
+}
+
+function chooseMention(user) {
+    const input = document.getElementById("messageInput");
+    if (!input || !user) return;
+    const value = input.value;
+    const cursor = input.selectionStart;
+    const before = value.slice(0, mentionState.start);
+    const after = value.slice(cursor);
+    const insertText = "@" + (user.displayName || user.loginId) + " ";
+    input.value = before + insertText + after;
+    const newCursor = before.length + insertText.length;
+    closeMentionDropdown();
+    input.focus();
+    input.setSelectionRange(newCursor, newCursor);
+}
+
+function renderMentionDropdown() {
+    const dropdown = document.getElementById("mentionDropdown");
+    if (!dropdown) return;
+    dropdown.innerHTML = "";
+    if (!mentionState.active || !mentionState.matches.length) {
+        dropdown.classList.add("hidden");
+        return;
+    }
+    mentionState.matches.forEach((user, index) => {
+        const item = document.createElement("div");
+        item.className = "mention-dropdown-item" + (index === mentionState.activeIndex ? " active" : "");
+
+        const avatar = document.createElement("span");
+        avatar.className = "avatar";
+        applyAvatarStyle(avatar, user.avatarKey);
+        avatar.textContent = avatarLabel(user.avatarKey);
+
+        const name = document.createElement("span");
+        name.className = "mention-dropdown-name";
+        name.textContent = user.displayName;
+
+        item.append(avatar, name);
+        // mousedown에서 preventDefault로 textarea 포커스를 유지해야 blur가 먼저 발생해 클릭이 씹히지 않는다.
+        item.addEventListener("mousedown", event => {
+            event.preventDefault();
+            chooseMention(user);
+        });
+        dropdown.appendChild(item);
+    });
+    dropdown.classList.remove("hidden");
+}
+
+// 메시지에 멘션된 사용자 ID로부터 표시할 닉네임을 찾는다. 현재 방 참여자 목록을 우선 쓰고,
+// 방을 나간 사용자 등은 전체 사용자 캐시에서 보조로 찾는다.
+function mentionDisplayNameForUserId(userId) {
+    if (me && me.userId === userId) return me.displayName;
+    const fromRoom = currentRoomMembers.find(u => u.userId === userId);
+    if (fromRoom) return fromRoom.displayName;
+    const fromAll = allUsersCache.find(u => u.userId === userId);
+    return fromAll ? fromAll.displayName : "";
+}
+
+function escapeRegExp(s) {
+    return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// 렌더링된 메시지 DOM에서 "@닉네임" 부분을 강조 표시한다(코드 블록 내부는 건드리지 않음).
+// 나를 멘션한 경우에는 별도 스타일(mention-me)을 추가로 입혀 카카오톡처럼 눈에 띄게 한다.
+function highlightMentions(container, mentionedUserIds) {
+    if (!Array.isArray(mentionedUserIds) || !mentionedUserIds.length) return;
+    const names = mentionedUserIds
+        .map(id => ({id, name: mentionDisplayNameForUserId(id)}))
+        .filter(item => item.name);
+    if (!names.length) return;
+    names.sort((a, b) => b.name.length - a.name.length);
+    walkAndHighlightMentions(container, names);
+}
+
+function walkAndHighlightMentions(node, names) {
+    if (node.nodeType === 1 && node.classList && node.classList.contains("code-block")) return;
+    Array.from(node.childNodes).forEach(child => {
+        if (child.nodeType === 3) {
+            const parts = splitMentionTextNode(child.textContent, names);
+            if (parts) {
+                const fragment = document.createDocumentFragment();
+                parts.forEach(part => {
+                    if (typeof part === "string") {
+                        fragment.appendChild(document.createTextNode(part));
+                    } else {
+                        const span = document.createElement("span");
+                        span.className = "mention" + (part.isMe ? " mention-me" : "");
+                        span.textContent = part.text;
+                        fragment.appendChild(span);
+                    }
+                });
+                child.replaceWith(fragment);
+            }
+        } else if (child.nodeType === 1) {
+            walkAndHighlightMentions(child, names);
+        }
+    });
+}
+
+function splitMentionTextNode(text, names) {
+    if (!text || text.indexOf("@") === -1) return null;
+    const pattern = new RegExp("@(" + names.map(n => escapeRegExp(n.name)).join("|") + ")(?:님)?(?![\\p{L}\\p{N}_])", "gu");
+    let match;
+    let lastIndex = 0;
+    let matched = false;
+    const result = [];
+    while ((match = pattern.exec(text)) !== null) {
+        matched = true;
+        if (match.index > lastIndex) result.push(text.slice(lastIndex, match.index));
+        const found = names.find(n => n.name === match[1]);
+        result.push({text: match[0], isMe: !!(found && me && found.id === me.userId)});
+        lastIndex = match.index + match[0].length;
+    }
+    if (!matched) return null;
+    if (lastIndex < text.length) result.push(text.slice(lastIndex));
+    return result;
 }
 
 function roomTypeLabel(type) {
@@ -393,17 +576,48 @@ async function enterRoom(roomId, roomName, roomType) {
     actionToggle.classList.remove("expanded");
     actionToggle.setAttribute("aria-expanded", "false");
     document.getElementById("currentRoomTitle").textContent = roomName;
-    await loadHistory();
+    // 멘션 하이라이트/자동완성이 참여자 목록을 참조하므로, 메시지를 그리기 전에 먼저 받아온다.
     await loadMembers();
+    await loadHistory();
 
     connect(() => {
         if (subscription) subscription.unsubscribe();
         subscription = stompClient.subscribe(`/topic/rooms/${roomId}`, msg => {
-            renderMessage(JSON.parse(msg.body));
+            const incoming = JSON.parse(msg.body);
+            renderMessage(incoming);
+            notifyIfMentioned(roomId, roomName, incoming);
             loadMembers();
             loadRooms({silent: true});
         });
     });
+}
+
+// 이 웹페이지는(브라우저 확장과 달리) 현재 열어둔 방 하나만 실시간으로 구독하기 때문에,
+// 다른 방에서 온 멘션까지는 즉시 알림을 보낼 수 없다는 한계가 있다. 대신 지금 보고 있는 방에서
+// 멘션된 경우에는, 알림 관련 설정이 따로 없는 이 화면에서도 브라우저 알림을 최대한 띄워준다
+// (탭이 보이지 않을 때만; 이미 보고 있으면 화면의 하이라이트로 충분하다).
+function notifyIfMentioned(roomId, roomName, message) {
+    if (!me || !Array.isArray(message.mentionedUserIds) || message.mentionedUserIds.indexOf(me.userId) === -1) return;
+    if (message.senderUserId === me.userId) return;
+    if (document.visibilityState === "visible") return;
+    if (!("Notification" in window)) return;
+
+    const fire = () => {
+        const sender = message.senderDisplayName || "알 수 없음";
+        const body = message.type === "FILE" ? `${sender}: 파일을 보냈습니다.` : `${sender}: ${message.content || ""}`;
+        try {
+            new Notification("[멘션] " + roomName, {body: body.substring(0, 120), tag: `mention-room-${roomId}`});
+        } catch (ignore) {}
+    };
+
+    if (Notification.permission === "granted") {
+        fire();
+    } else if (Notification.permission === "default") {
+        // 이 화면에는 알림 켜기/끄기 설정이 없으므로, 멘션이 발생한 시점에 한 번 권한을 물어본다.
+        Notification.requestPermission().then(permission => {
+            if (permission === "granted") fire();
+        });
+    }
 }
 
 async function loadHistory() {
@@ -479,9 +693,11 @@ async function loadMembers() {
     if (!currentRoomId) return;
     try {
         const members = await api(`/api/rooms/${currentRoomId}/members`, {headers: authHeaders(false)});
+        currentRoomMembers = members;
         document.getElementById("memberList").textContent =
             "참여자: " + members.map(m => `${m.displayName}(${m.loginId})`).join(", ");
     } catch (e) {
+        currentRoomMembers = [];
         document.getElementById("memberList").textContent = "";
     }
 }
@@ -639,7 +855,7 @@ function createMessageElement(m) {
         const avatarKey = avatarKeyForUserId(m.senderUserId);
         avatar.className = "avatar message-avatar";
         applyAvatarStyle(avatar, avatarKey);
-        avatar.textContent = avatarLabel(m.senderDisplayName, avatarKey);
+        avatar.textContent = avatarLabel(avatarKey);
         bubble.className = "message-bubble";
         meta.className = "meta";
         meta.innerHTML = `<strong>${escapeHtml(m.senderDisplayName)}</strong> · ${time}`;
@@ -653,6 +869,7 @@ function createMessageElement(m) {
             content.appendChild(link);
         } else {
             renderMessageContent(content, m.content);
+            highlightMentions(content, m.mentionedUserIds);
         }
         if (m.senderUserId === me.userId) {
             const button = document.createElement("button");
@@ -692,6 +909,7 @@ function sendMessage() {
             content
         }));
         input.value = "";
+        closeMentionDropdown();
     });
 }
 
@@ -813,6 +1031,8 @@ function clearCurrentRoom() {
     currentRoomId = null;
     currentRoomType = null;
     currentRoomName = "";
+    currentRoomMembers = [];
+    closeMentionDropdown();
     document.getElementById("currentRoomTitle").textContent = "방을 선택하세요";
     document.getElementById("memberList").textContent = "";
     document.getElementById("messages").innerHTML = "";
@@ -863,6 +1083,22 @@ init();
 
 document.getElementById("fileInput").addEventListener("change", uploadFile);
 document.getElementById("messageInput").addEventListener("keydown", event => {
+    // 멘션 후보 목록이 떠 있는 동안에는 방향키/엔터/Esc가 목록 탐색에 먼저 쓰이도록 한다(카카오톡과 동일한 조작감).
+    if (mentionState.active && mentionState.matches.length) {
+        if (event.key === "ArrowDown") { event.preventDefault(); moveMentionSelection(1); return; }
+        if (event.key === "ArrowUp") { event.preventDefault(); moveMentionSelection(-1); return; }
+        if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            chooseMention(mentionState.matches[mentionState.activeIndex]);
+            return;
+        }
+        if (event.key === "Escape") { event.preventDefault(); closeMentionDropdown(); return; }
+    } else if (mentionState.active && event.key === "Escape") {
+        event.preventDefault();
+        closeMentionDropdown();
+        return;
+    }
+
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
@@ -878,6 +1114,12 @@ document.getElementById("messageInput").addEventListener("keydown", event => {
         input.selectionStart = input.selectionEnd = start + 4;
     }
 });
+document.getElementById("messageInput").addEventListener("input", updateMentionState);
+document.getElementById("messageInput").addEventListener("click", updateMentionState);
+document.getElementById("messageInput").addEventListener("keyup", event => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].indexOf(event.key) !== -1) updateMentionState();
+});
+document.getElementById("messageInput").addEventListener("blur", closeMentionDropdown);
 document.getElementById("avatarColorInput").addEventListener("input", event => updateCustomAvatarColor(event.target.value));
 document.getElementById("avatarHexInput").addEventListener("change", event => updateCustomAvatarColor(event.target.value));
 document.getElementById("avatarHexInput").addEventListener("keydown", event => {

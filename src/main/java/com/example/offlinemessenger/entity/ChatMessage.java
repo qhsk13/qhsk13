@@ -2,6 +2,10 @@ package com.example.offlinemessenger.entity;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Entity
 @Table(indexes = {
@@ -27,6 +31,12 @@ public class ChatMessage {
     private String storedFileName;
     private Long fileSize;
     private LocalDateTime createdAt;
+
+    // "@닉네임" 멘션으로 지목된 사용자 ID들을 콤마로 구분해 저장한다(예: "3,10").
+    // 카카오톡처럼 멘션된 사람에게는 알림 설정과 무관하게 항상 알림을 띄워야 하므로,
+    // 클라이언트가 이 목록만 보고 판단할 수 있도록 메시지에 함께 실어 보낸다.
+    @Column(length = 500)
+    private String mentionedUserIdsCsv;
 
     public ChatMessage() {}
 
@@ -76,6 +86,24 @@ public class ChatMessage {
     public String getStoredFileName() { return storedFileName; }
     public Long getFileSize() { return fileSize; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+
+    public List<Long> getMentionedUserIds() {
+        if (mentionedUserIdsCsv == null || mentionedUserIdsCsv.trim().isEmpty()) return Collections.emptyList();
+        List<Long> ids = new ArrayList<>();
+        for (String part : mentionedUserIdsCsv.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                try { ids.add(Long.parseLong(trimmed)); } catch (NumberFormatException ignore) { /* skip malformed */ }
+            }
+        }
+        return ids;
+    }
+
+    public void setMentionedUserIds(List<Long> mentionedUserIds) {
+        this.mentionedUserIdsCsv = (mentionedUserIds == null || mentionedUserIds.isEmpty())
+                ? null
+                : mentionedUserIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
 
     public void setId(Long id) { this.id = id; }
     public void setRoomId(Long roomId) { this.roomId = roomId; }

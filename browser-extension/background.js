@@ -61,7 +61,9 @@ async function pollMessages() {
         initializedRooms: {}
     });
 
-    if (!settings.authToken || settings.notificationsEnabled !== true) return;
+    // 알림이 꺼져 있어도 "멘션"은 예외적으로 항상 알려야 하므로(필수 요구사항), 폴링 자체는
+    // 알림 설정과 무관하게 계속 수행하고, 실제로 알림을 띄울지 여부만 메시지별로 판단한다.
+    if (!settings.authToken) return;
     if (Number(settings.popupActiveUntil || 0) > Date.now()) return;
 
     const baseUrl = String(settings.serverBaseUrl || DEFAULT_SERVER_URL).replace(/\/+$/, "");
@@ -91,7 +93,10 @@ async function pollMessages() {
                     .filter(message => Number(message.id) > previousId)
                     .filter(message => message.type !== "SYSTEM")
                     .filter(message => message.senderUserId !== me.userId)
-                    .forEach(message => notify(room, message));
+                    .forEach(message => {
+                        const mentionedMe = Array.isArray(message.mentionedUserIds) && message.mentionedUserIds.indexOf(me.userId) !== -1;
+                        if (mentionedMe || settings.notificationsEnabled === true) notify(room, message, mentionedMe);
+                    });
             }
 
             lastSeenMessageIds[room.id] = latestId;
@@ -114,13 +119,14 @@ function maxMessageId(messages) {
     return messages.reduce((max, message) => Math.max(max, Number(message.id || 0)), 0);
 }
 
-function notify(room, message) {
+function notify(room, message, mentionedMe) {
     const sender = message.senderDisplayName || "Unknown";
     const body = message.type === "FILE" ? `${sender}: sent a file.` : `${sender}: ${message.content || ""}`;
+    const title = (mentionedMe ? "[멘션] " : "") + (room.name || "New message");
     chrome.notifications.create(`room-${room.id}-${message.id}-${Date.now()}`, {
         type: "basic",
         iconUrl: "icon.png",
-        title: room.name || "New message",
+        title: title,
         message: body.substring(0, 120)
     });
 }

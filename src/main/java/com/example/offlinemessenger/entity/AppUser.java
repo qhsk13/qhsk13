@@ -2,6 +2,7 @@ package com.example.offlinemessenger.entity;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Entity
 @Table(indexes = {
@@ -32,19 +33,24 @@ public class AppUser {
 
     public AppUser() {}
 
+    // 프로필 생성 시 아바타는 이름/닉네임과 무관하게 완전히 무작위로 배정한다
+    // (성이나 이름 글자 기반으로 정해지지 않도록, 미리 준비된 20개 세트 중에서 임의로 하나를 고른다).
+    public static final String[] AVATAR_KEYS = {
+            "av1", "av2", "av3", "av4", "av5", "av6", "av7", "av8", "av9", "av10",
+            "av11", "av12", "av13", "av14", "av15", "av16", "av17", "av18", "av19", "av20"
+    };
+
     public AppUser(String loginId, String passwordHash, String displayName) {
         this.loginId = loginId;
         this.passwordHash = passwordHash;
         this.displayName = displayName;
-        this.avatarKey = defaultAvatarKey(displayName == null || displayName.trim().isEmpty() ? loginId : displayName);
+        this.avatarKey = randomAvatarKey();
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
-    private String defaultAvatarKey(String seed) {
-        String[] keys = {"aurora", "mint", "violet", "peach", "sky", "mono"};
-        int index = (String.valueOf(seed).hashCode() & 0x7fffffff) % keys.length;
-        return keys[index];
+    private static String randomAvatarKey() {
+        return AVATAR_KEYS[ThreadLocalRandom.current().nextInt(AVATAR_KEYS.length)];
     }
 
     public Long getId() { return id; }

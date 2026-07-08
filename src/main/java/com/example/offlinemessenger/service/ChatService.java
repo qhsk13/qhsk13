@@ -15,6 +15,8 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class ChatService {
@@ -197,9 +199,39 @@ public class ChatService {
         requireActiveMember(roomId, sender.getId());
         if (content == null || content.trim().isEmpty()) throw new IllegalArgumentException("메시지를 입력하세요.");
         reactivatePrivateRoomMembers(roomId);
-        ChatMessage saved = messageRepo.save(ChatMessage.text(roomId, sender.getId(), sender.getDisplayName(), content.trim()));
+        String trimmed = content.trim();
+        ChatMessage message = ChatMessage.text(roomId, sender.getId(), sender.getDisplayName(), trimmed);
+        message.setMentionedUserIds(extractMentionedUserIds(roomId, trimmed));
+        ChatMessage saved = messageRepo.save(message);
         messagingTemplate.convertAndSend("/topic/rooms/" + roomId, saved);
         return saved;
+    }
+
+    /**
+     * 메시지 본문에서 "@닉네임" 형태로 언급된 방 참여자를 찾아 사용자 ID 목록으로 반환한다.
+     * 카카오톡 멘션처럼 실제 존재하는 참여자 이름만 인정하며, 닉네임이 서로의 부분 문자열인
+     * 경우(예: "김" / "김철수")를 대비해 긴 이름부터 먼저 매칭하고 이름 뒤에 글자가 더 이어지면
+     * (예: "@김철수님" 안의 "@김철" 오탐) 인정하지 않도록 경계를 둔다.
+     */
+    private List<Long> extractMentionedUserIds(Long roomId, String content) {
+        List<Map.Entry<String, Long>> candidates = new ArrayList<>();
+        for (RoomMember m : memberRepo.findByRoomIdAndActiveTrue(roomId)) {
+            userRepo.findById(m.getUserId()).ifPresent(u -> {
+                String name = clean(u.getDisplayName());
+                if (!name.isEmpty()) candidates.add(new AbstractMap.SimpleEntry<>(name, u.getId()));
+            });
+        }
+        candidates.sort((a, b) -> b.getKey().length() - a.getKey().length());
+
+        Set<Long> mentioned = new LinkedHashSet<>();
+        for (Map.Entry<String, Long> candidate : candidates) {
+            // "@철수님"처럼 이름 뒤에 "님"을 바로 붙이는 관용적 표현은 허용하고,
+            // 그 외 글자/숫자가 이어지면(예: "@철수야" 안의 "@철수") 다른 이름의 일부로 보고 매칭하지 않는다.
+            Pattern pattern = Pattern.compile("@" + Pattern.quote(candidate.getKey()) + "(?:님)?(?![\\p{L}\\p{N}_])");
+            Matcher matcher = pattern.matcher(content);
+            if (matcher.find()) mentioned.add(candidate.getValue());
+        }
+        return new ArrayList<>(mentioned);
     }
 
     @Transactional
@@ -263,7 +295,7 @@ public class ChatService {
                 row.put("userId", u.getId());
                 row.put("loginId", u.getLoginId());
                 row.put("displayName", u.getDisplayName());
-                row.put("avatarKey", u.getAvatarKey() == null || u.getAvatarKey().trim().isEmpty() ? "aurora" : u.getAvatarKey());
+                row.put("avatarKey", u.getAvatarKey() == null || u.getAvatarKey().trim().isEmpty() ? com.example.offlinemessenger.entity.AppUser.AVATAR_KEYS[0] : u.getAvatarKey());
                 result.add(row);
             });
         }

@@ -114,7 +114,7 @@ public class AuthService {
 
     private String avatarOrDefault(String avatarKey) {
         String clean = clean(avatarKey);
-        return clean.isEmpty() ? "aurora" : clean;
+        return clean.isEmpty() ? com.example.offlinemessenger.entity.AppUser.AVATAR_KEYS[0] : clean;
     }
 
     private String hash(String password) {
