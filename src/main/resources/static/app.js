@@ -329,6 +329,9 @@ function updateCustomAvatarColor(value) {
 
 // ---------- @멘션(카카오톡 스타일) ----------
 
+// 방 전체 참여자를 한 번에 멘션하는 특수 항목("@all"). 실제 회원이 아니라 드롭다운에만 표시되는 가짜 항목이다.
+const ALL_MENTION_ITEM = {userId: "__all__", displayName: "전체", isAll: true};
+
 function updateMentionState() {
     const input = document.getElementById("messageInput");
     if (!input) return;
@@ -348,7 +351,12 @@ function updateMentionState() {
     const lowerQuery = query.toLowerCase();
     const matches = currentRoomMembers
         .filter(u => !query || String(u.displayName || "").toLowerCase().indexOf(lowerQuery) !== -1)
-        .slice(0, 8);
+        .slice(0, 7);
+
+    // "@all"/"@전체"로 방 전체를 한 번에 멘션할 수 있는 특수 항목을 목록 맨 위에 추가한다.
+    if (!query || "all".indexOf(lowerQuery) === 0 || "전체".indexOf(query) === 0) {
+        matches.unshift(ALL_MENTION_ITEM);
+    }
 
     mentionState = {active: true, start: atIndex, query, matches, activeIndex: 0};
     renderMentionDropdown();
@@ -374,7 +382,7 @@ function chooseMention(user) {
     const cursor = input.selectionStart;
     const before = value.slice(0, mentionState.start);
     const after = value.slice(cursor);
-    const insertText = "@" + (user.displayName || user.loginId) + " ";
+    const insertText = "@" + (user.isAll ? "all" : (user.displayName || user.loginId)) + " ";
     input.value = before + insertText + after;
     const newCursor = before.length + insertText.length;
     closeMentionDropdown();
@@ -392,16 +400,21 @@ function renderMentionDropdown() {
     }
     mentionState.matches.forEach((user, index) => {
         const item = document.createElement("div");
-        item.className = "mention-dropdown-item" + (index === mentionState.activeIndex ? " active" : "");
+        item.className = "mention-dropdown-item" + (index === mentionState.activeIndex ? " active" : "") + (user.isAll ? " mention-all-item" : "");
 
         const avatar = document.createElement("span");
         avatar.className = "avatar";
-        applyAvatarStyle(avatar, user.avatarKey);
-        avatar.textContent = avatarLabel(user.avatarKey);
+        if (user.isAll) {
+            avatar.classList.add("avatar-all");
+            avatar.textContent = "📢";
+        } else {
+            applyAvatarStyle(avatar, user.avatarKey);
+            avatar.textContent = avatarLabel(user.avatarKey);
+        }
 
         const name = document.createElement("span");
         name.className = "mention-dropdown-name";
-        name.textContent = user.displayName;
+        name.textContent = user.isAll ? "전체 (@all)" : user.displayName;
 
         item.append(avatar, name);
         // mousedown에서 preventDefault로 textarea 포커스를 유지해야 blur가 먼저 발생해 클릭이 씹히지 않는다.
@@ -432,9 +445,14 @@ function escapeRegExp(s) {
 // 나를 멘션한 경우에는 별도 스타일(mention-me)을 추가로 입혀 카카오톡처럼 눈에 띄게 한다.
 function highlightMentions(container, mentionedUserIds) {
     if (!Array.isArray(mentionedUserIds) || !mentionedUserIds.length) return;
+    const iAmMentioned = !!(me && mentionedUserIds.indexOf(me.userId) !== -1);
     const names = mentionedUserIds
-        .map(id => ({id, name: mentionDisplayNameForUserId(id)}))
+        .map(id => ({name: mentionDisplayNameForUserId(id), isMe: !!(me && id === me.userId)}))
         .filter(item => item.name);
+    // "@all"/"@전체"로 방 전체를 멘션한 경우 실제 본문에는 각자의 닉네임이 아니라
+    // "all"/"전체" 글자만 있으므로, 별도의 강조 대상으로 추가한다.
+    names.push({name: "all", isMe: iAmMentioned});
+    names.push({name: "전체", isMe: iAmMentioned});
     if (!names.length) return;
     names.sort((a, b) => b.name.length - a.name.length);
     walkAndHighlightMentions(container, names);
@@ -476,7 +494,7 @@ function splitMentionTextNode(text, names) {
         matched = true;
         if (match.index > lastIndex) result.push(text.slice(lastIndex, match.index));
         const found = names.find(n => n.name === match[1]);
-        result.push({text: match[0], isMe: !!(found && me && found.id === me.userId)});
+        result.push({text: match[0], isMe: !!(found && found.isMe)});
         lastIndex = match.index + match[0].length;
     }
     if (!matched) return null;

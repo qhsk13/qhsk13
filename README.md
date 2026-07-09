@@ -2,13 +2,16 @@
 
 ## 추가된 기능
 - 회원가입 / 로그인
+- 여러 곳(웹 + 브라우저 확장 등) 동시 로그인 유지
 - 닉네임 변경
 - 닉네임을 바꿔도 동일 사용자로 유지
+- 프로필 아바타: 성/이름 글자와 무관하게 20종 이모지 세트 중 가입 시 무작위 배정, 이후 원하는 걸로 언제든 변경 가능
 - 개인방은 참여자에게만 노출
 - 단체방 참여자 추가
 - 중복 방 이름 방지
 - 방 삭제
 - 메시지/파일 기록 유지
+- @닉네임 멘션 + "@all"/"@전체" 전체멘션(방 참여자 전원에게 알림)
 - 코드 서식 문법 강조 추가(하위 지원 포맷 참고)
 - 나와의 채팅 추가(고정 & 삭제 불가, 메모용)
 
@@ -98,6 +101,7 @@ Required user checklist:
 - Enable `메시지 알림` in the profile area.
 - Allow notifications in Chrome/Edge and Windows settings.
 - Keep the browser running; background checks run about every 10 seconds.
+- Optional: enable Chrome/Edge's "keep running background apps when browser is closed" setting so notifications keep working even after closing all browser windows (see `EXTENSION_NOTIFICATIONS.md`). Fully quitting the browser process or shutting down/sleeping the PC still blocks notifications, since this closed-network app has no external push server.
 
 #
 # 코드 공유(서식 유지) 기능 가이드
@@ -329,6 +333,9 @@ spring.datasource.url=jdbc:h2:mem:test
 
 ## 최근 수정 사항 (변경 이력)
 
+- **전체멘션("@all"/"@전체") 추가**: 메시지 입력 중 `@all` 또는 `@전체`를 입력하면(또는 멘션 자동완성 드롭다운 맨 위 `전체` 항목을 선택하면) 방에 있는 참여자 전원이 멘션 대상이 되어 알림을 받습니다. 서버(`ChatService`)에서 방의 활성 참여자 전원을 멘션 ID 목록에 담아 처리하며, 웹페이지(`app.js`)와 크롬 확장(`popup.js`) 양쪽에 동일하게 적용되어 있습니다.
+- **동시 로그인 유지(로그인 세션 다중화)**: 예전에는 사용자별로 세션 토큰을 1개만 저장해서, 브라우저 확장에서 로그인하면 웹 브라우저 로그인이 풀리는 문제가 있었습니다. 로그인/회원가입 시 토큰을 별도의 `UserSession` 테이블에 추가로 저장하고 기존 토큰은 무효화하지 않도록 `AuthService`를 변경해, 이제 웹과 확장 프로그램(그 외 여러 탭/기기)에서 동시에 로그인 상태를 유지할 수 있습니다.
+- **확장 프로그램 알림: 브라우저 종료 후에도 계속 받기 안내 추가**: 폐쇄망 특성상 외부 푸시 서버(FCM 등)를 쓸 수 없어 브라우저 프로그램 자체가 백그라운드에서 실행 중이어야 알림을 받을 수 있습니다. `EXTENSION_NOTIFICATIONS.md`에 Chrome/Edge의 "브라우저 종료 후에도 백그라운드 앱 계속 실행" 설정을 켜는 방법을 추가해, 브라우저 창을 모두 닫아도(프로세스가 트레이에 남아있는 한) 확장의 백그라운드 폴링과 알림이 계속 동작하도록 안내합니다. PC를 완전히 끄거나 절전 상태이면 여전히 알림을 받을 수 없습니다.
 - **코드 서식/문법 강조 기능 추가**: `code-format.js` 신설. 펜스(\`\`\`언어) 인식, 언어 자동 감지, 정규식 기반 문법 강조(주석/문자열/키워드/태그 등), 복사 버튼, JSON 자동 정렬.
 - **입력창 개선**: `[코드]` 버튼 + 언어 선택 드롭다운 추가(자동 감지 대신 언어를 명시적으로 지정 가능). Tab 키로 들여쓰기 삽입. 메시지 전송 시 앞뒤 공백만 정리하고 내부 들여쓰기/줄바꿈은 그대로 보존.
 - **불필요한 오류 팝업 제거**: 새 메시지를 수신할 때마다 자동으로 실행되던 방 목록 새로고침(`loadRooms`)이 실패해도 더 이상 `alert` 팝업을 띄우지 않고 콘솔 경고로만 남깁니다(사용자가 직접 방 생성/삭제/이름변경 등을 했을 때 실패하면 기존처럼 알림이 뜹니다).

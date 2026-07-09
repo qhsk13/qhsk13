@@ -207,15 +207,27 @@ public class ChatService {
         return saved;
     }
 
+    // "@all" 또는 "@전체"로 방 전체 참여자를 한 번에 멘션하는 전체 멘션 트리거.
+    private static final Pattern ALL_MENTION_PATTERN =
+            Pattern.compile("@(?:all|전체)(?:님)?(?![\\p{L}\\p{N}_])", Pattern.CASE_INSENSITIVE);
+
     /**
      * 메시지 본문에서 "@닉네임" 형태로 언급된 방 참여자를 찾아 사용자 ID 목록으로 반환한다.
      * 카카오톡 멘션처럼 실제 존재하는 참여자 이름만 인정하며, 닉네임이 서로의 부분 문자열인
      * 경우(예: "김" / "김철수")를 대비해 긴 이름부터 먼저 매칭하고 이름 뒤에 글자가 더 이어지면
      * (예: "@김철수님" 안의 "@김철" 오탐) 인정하지 않도록 경계를 둔다.
+     * "@all" 또는 "@전체"는 개별 닉네임과 무관하게 현재 방의 활성 참여자 전원을 멘션한다.
      */
     private List<Long> extractMentionedUserIds(Long roomId, String content) {
+        List<RoomMember> activeMembers = memberRepo.findByRoomIdAndActiveTrue(roomId);
+        Set<Long> mentioned = new LinkedHashSet<>();
+
+        if (ALL_MENTION_PATTERN.matcher(content).find()) {
+            for (RoomMember m : activeMembers) mentioned.add(m.getUserId());
+        }
+
         List<Map.Entry<String, Long>> candidates = new ArrayList<>();
-        for (RoomMember m : memberRepo.findByRoomIdAndActiveTrue(roomId)) {
+        for (RoomMember m : activeMembers) {
             userRepo.findById(m.getUserId()).ifPresent(u -> {
                 String name = clean(u.getDisplayName());
                 if (!name.isEmpty()) candidates.add(new AbstractMap.SimpleEntry<>(name, u.getId()));
@@ -223,7 +235,6 @@ public class ChatService {
         }
         candidates.sort((a, b) -> b.getKey().length() - a.getKey().length());
 
-        Set<Long> mentioned = new LinkedHashSet<>();
         for (Map.Entry<String, Long> candidate : candidates) {
             // "@철수님"처럼 이름 뒤에 "님"을 바로 붙이는 관용적 표현은 허용하고,
             // 그 외 글자/숫자가 이어지면(예: "@철수야" 안의 "@철수") 다른 이름의 일부로 보고 매칭하지 않는다.

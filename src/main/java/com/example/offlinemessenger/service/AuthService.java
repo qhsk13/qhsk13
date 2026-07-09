@@ -4,7 +4,9 @@ import com.example.offlinemessenger.dto.AuthRequest;
 import com.example.offlinemessenger.dto.AuthResponse;
 import com.example.offlinemessenger.dto.UserSummary;
 import com.example.offlinemessenger.entity.AppUser;
+import com.example.offlinemessenger.entity.UserSession;
 import com.example.offlinemessenger.repo.AppUserRepository;
+import com.example.offlinemessenger.repo.UserSessionRepository;
 import org.springframework.stereotype.Service;
 
 import javax.transaction.Transactional;
@@ -18,9 +20,11 @@ import java.util.List;
 @Service
 public class AuthService {
     private final AppUserRepository userRepo;
+    private final UserSessionRepository sessionRepo;
 
-    public AuthService(AppUserRepository userRepo) {
+    public AuthService(AppUserRepository userRepo, UserSessionRepository sessionRepo) {
         this.userRepo = userRepo;
+        this.sessionRepo = sessionRepo;
     }
 
     @Transactional
@@ -35,9 +39,8 @@ public class AuthService {
         if (userRepo.existsByLoginId(loginId)) throw new IllegalArgumentException("이미 사용 중인 아이디입니다.");
 
         AppUser user = userRepo.save(new AppUser(loginId, hash(password), displayName));
-        user.setSessionToken(UUID.randomUUID().toString());
-        user.setUpdatedAt(LocalDateTime.now());
-        return toResponse(user);
+        String token = createSession(user.getId());
+        return toResponse(user, token);
     }
 
     @Transactional
@@ -48,16 +51,26 @@ public class AuthService {
         if (!user.getPasswordHash().equals(hash(req.getPassword()))) {
             throw new IllegalArgumentException("아이디 또는 비밀번호가 맞지 않습니다.");
         }
-        user.setSessionToken(UUID.randomUUID().toString());
+        // 새로 로그인하더라도 기존에 발급된 다른 토큰(예: 웹 브라우저, 브라우저 확장 등)은 무효화하지 않는다.
+        // 이렇게 해야 여러 곳에서 동시에 로그인 상태를 유지할 수 있다.
+        String token = createSession(user.getId());
         user.setUpdatedAt(LocalDateTime.now());
-        return toResponse(user);
+        return toResponse(user, token);
+    }
+
+    private String createSession(Long userId) {
+        String token = UUID.randomUUID().toString();
+        sessionRepo.save(new UserSession(userId, token));
+        return token;
     }
 
     public AppUser requireUser(String token) {
         if (token == null || token.trim().isEmpty()) {
             throw new IllegalArgumentException("로그인이 필요합니다.");
         }
-        return userRepo.findBySessionToken(token)
+        UserSession session = sessionRepo.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("로그인이 만료되었거나 유효하지 않습니다."));
+        return userRepo.findById(session.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("로그인이 만료되었거나 유효하지 않습니다."));
     }
 
@@ -75,11 +88,11 @@ public class AuthService {
         String avatar = clean(avatarKey);
         if (!avatar.isEmpty()) user.setAvatarKey(avatar);
         user.setUpdatedAt(LocalDateTime.now());
-        return toResponse(user);
+        return toResponse(user, token);
     }
 
     public AuthResponse me(String token) {
-        return toResponse(requireUser(token));
+        return toResponse(requireUser(token), token);
     }
 
 
@@ -104,8 +117,8 @@ public class AuthService {
     }
 
 
-    private AuthResponse toResponse(AppUser user) {
-        return new AuthResponse(user.getId(), user.getLoginId(), user.getDisplayName(), avatarOrDefault(user.getAvatarKey()), user.getSessionToken());
+    private AuthResponse toResponse(AppUser user, String token) {
+        return new AuthResponse(user.getId(), user.getLoginId(), user.getDisplayName(), avatarOrDefault(user.getAvatarKey()), token);
     }
 
     private String clean(String v) {

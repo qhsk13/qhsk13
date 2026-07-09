@@ -188,6 +188,9 @@ hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
 .mention-dropdown-item:hover, .mention-dropdown-item.active { background:var(--primary-soft); }
 .mention-dropdown-item .avatar { width:26px; height:26px; font-size:13px; flex:0 0 auto; }
 .mention-dropdown-name { font-size:13.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mention-all-item { border-bottom:1px solid var(--line); }
+.mention-all-item .mention-dropdown-name { font-weight:700; }
+.avatar-all { background:#475569; }
 .mention { color:var(--primary-strong); font-weight:700; background:rgba(109,106,242,.12); border-radius:4px; padding:0 2px; }
 .mine .mention { color:#fff; background:rgba(255,255,255,.22); }
 .mention-me { color:#7a4d00; background:rgba(255,196,0,.38); }

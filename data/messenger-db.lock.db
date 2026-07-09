@@ -1,6 +1,6 @@
 #FileLock
-#Wed Jul 08 09:59:23 KST 2026
-server=192.168.35.100\:58685
+#Thu Jul 09 16:13:19 KST 2026
+server=192.168.35.100\:59209
 hostName=DESKTOP-34DS11A
 method=file
-id=19f3f3c976c1d47c67c51ea2e776a8f7b928091ccee
+id=19f45b94badc7631f8ad43fcf4729ce321aaf1add4c

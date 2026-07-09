@@ -825,6 +825,18 @@ button.outline {
     white-space: nowrap;
 }
 
+.mention-all-item {
+    border-bottom: 1px solid var(--line);
+}
+
+.mention-all-item .mention-dropdown-name {
+    font-weight: 700;
+}
+
+.avatar-all {
+    background: #475569;
+}
+
 .mention {
     color: var(--primary-strong);
     font-weight: 700;
